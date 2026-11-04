@@ -4,16 +4,7 @@ Smart classroom comfort monitor.
 
 ## Part B LED test
 
-Run these commands in Terminal on the Raspberry Pi. This is a private repository. If Git on the Pi already has access, skip the sign-in block.
-
-```sh
-sudo apt update
-sudo apt install git gh
-gh auth login --hostname github.com --git-protocol https --web
-gh auth setup-git --hostname github.com
-```
-
-Sign in to the GitHub account that can open `t957095/comfort.io`. Then clone the repository.
+Open Terminal on the Raspberry Pi and clone the repository. You can clone it without signing in to GitHub.
 
 ```sh
 cd ~
