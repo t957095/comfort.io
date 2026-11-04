@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
@@ -9,7 +8,7 @@
 
 #define LED_PIN 17
 #define LOG_FILE "data/temperature_log.csv"
-#define STATUS_FILE "status.txt"
+#define SPACE " \t\r\n\v\f"
 
 static int read_number(const char *text, double *number)
 {
@@ -17,13 +16,8 @@ static int read_number(const char *text, double *number)
     errno = 0;
     double value = strtod(text, &end);
 
-    if (end == text || errno == ERANGE || !isfinite(value)) {
-        return 0;
-    }
-    while (isspace((unsigned char)*end)) {
-        end++;
-    }
-    if (*end != '\0') {
+    if (end == text || errno == ERANGE || !isfinite(value) ||
+        end[strspn(end, SPACE)] != '\0') {
         return 0;
     }
 
@@ -33,14 +27,13 @@ static int read_number(const char *text, double *number)
 
 static int save_status(const char *status)
 {
-    FILE *file = fopen(STATUS_FILE, "w");
+    FILE *file = fopen("status.txt", "w");
     if (file == NULL) {
         return 0;
     }
 
-    int written = fprintf(file, "%s\n", status);
-    int closed = fclose(file);
-    return written >= 0 && closed == 0;
+    int saved = fprintf(file, "%s\n", status) >= 0;
+    return fclose(file) == 0 && saved;
 }
 
 int main(int argc, char *argv[])
@@ -65,16 +58,13 @@ int main(int argc, char *argv[])
     }
 
     FILE *log = fopen(LOG_FILE, "a");
-    if (log == NULL) {
-        perror(LOG_FILE);
-        gpioTerminate();
-        return 1;
-    }
-    long log_size = fseek(log, 0, SEEK_END) == 0 ? ftell(log) : -1;
+    long log_size = log && fseek(log, 0, SEEK_END) == 0 ? ftell(log) : -1;
     if (log_size < 0 ||
         (log_size == 0 && fputs("temperature_f,status\n", log) == EOF)) {
-        fputs("Could not prepare the temperature log.\n", stderr);
-        fclose(log);
+        perror(LOG_FILE);
+        if (log) {
+            fclose(log);
+        }
         gpioTerminate();
         return 1;
     }
@@ -84,33 +74,25 @@ int main(int argc, char *argv[])
     unsigned long count = 0;
     int result = 0;
 
-    puts("Classroom Comfort Monitor");
-    printf("Normal range: %g to %g F\n", low, high);
-    puts("Enter q to quit.");
+    printf("Normal range: %g to %g F. Enter q to quit.\n", low, high);
 
     for (;;) {
         printf("Temperature (F): ");
         fflush(stdout);
         if (fgets(line, sizeof line, stdin) == NULL) {
-            if (ferror(stdin)) {
-                perror("Reading temperature");
-                result = 1;
-            }
+            result = ferror(stdin) != 0;
             break;
         }
         if (strchr(line, '\n') == NULL && !feof(stdin)) {
             int ch;
             while ((ch = getchar()) != '\n' && ch != EOF) {
-                /* Finish reading the long line before the next prompt. */
+                /* Discard the rest of the line. */
             }
             puts("Enter a shorter number.");
             continue;
         }
-        size_t length = strlen(line);
-        while (length > 0 && isspace((unsigned char)line[length - 1])) {
-            line[--length] = '\0';
-        }
-        if (strcmp(line, "q") == 0 || strcmp(line, "Q") == 0) {
+        if ((line[0] == 'q' || line[0] == 'Q') &&
+            line[1 + strspn(line + 1, SPACE)] == '\0') {
             break;
         }
 
@@ -146,12 +128,9 @@ int main(int argc, char *argv[])
                status, warning ? "ON" : "OFF", average);
     }
 
-    if (fclose(log) == EOF) {
-        fputs("Could not close the temperature log.\n", stderr);
-        result = 1;
-    }
-    if (gpioWrite(LED_PIN, 0) < 0) {
-        fputs("Could not turn off the LED.\n", stderr);
+    int closed = fclose(log);
+    if (gpioWrite(LED_PIN, 0) < 0 || closed != 0) {
+        fputs("Could not finish cleanly.\n", stderr);
         result = 1;
     }
     gpioTerminate();
